@@ -1,0 +1,75 @@
+PIPELINE 10 : MAROC SOLAIRE, UNE COPIE QUI ÉTIQUETTE, UN NOTEBOOK QUI RÉPOND
+Chaque valeur est sur sa propre ligne : copiez la ligne entière, sans le titre entre crochets.
+
+==================== PL_Noor : paramètre du pipeline ====================
+
+[Nom du paramètre]
+day
+
+[Valeur par défaut]
+2026-10-21
+
+==================== Load production (Copy data) ====================
+
+[Source : dossier (caractères génériques)]
+landing
+
+[Source : nom de fichier (caractères génériques)]
+*.csv
+
+[Colonne supplémentaire 1 : nom]
+source_file
+
+[Colonne supplémentaire 1 : valeur (choisir « Chemin du fichier »)]
+$$FILEPATH
+
+[Colonne supplémentaire 2 : nom]
+load_day
+
+[Colonne supplémentaire 2 : valeur (contenu dynamique)]
+@pipeline().parameters.day
+
+[Destination : nom de table]
+production_raw
+
+==================== Score plants (Notebook) ====================
+
+[Paramètre de base : nom]
+day
+
+[Paramètre de base : valeur (contenu dynamique)]
+@pipeline().parameters.day
+
+==================== Any alert (If Condition) ====================
+
+[Expression]
+@greater(json(activity('Score plants').output.result.exitValue).alerts, 0)
+
+==================== Microsoft Teams ====================
+
+[Titre des trois messages]
+Maroc solaire
+
+[Post alert (branche Vrai) : message]
+Maroc solaire, @{pipeline().parameters.day} : @{json(activity('Score plants').output.result.exitValue).total_mwh} MWh produits par @{json(activity('Score plants').output.result.exitValue).plants} centrales. En tête : @{json(activity('Score plants').output.result.exitValue).best} (@{json(activity('Score plants').output.result.exitValue).best_cf} % de facteur de charge). Alerte rendement : @{json(activity('Score plants').output.result.exitValue).alert_plants}, à inspecter.
+
+[Post all clear (branche Faux) : message]
+Maroc solaire, @{pipeline().parameters.day} : @{json(activity('Score plants').output.result.exitValue).total_mwh} MWh produits, toutes les centrales au-dessus de 75 % de rendement. En tête : @{json(activity('Score plants').output.result.exitValue).best}.
+
+[Post failure (flèche rouge) : message]
+Maroc solaire, @{pipeline().parameters.day} : le calcul a échoué malgré une nouvelle tentative. Cause : @{activity('Score plants').error.message}
+
+==================== Exécution 3 : provoquer l'échec ====================
+
+[Valeur de day à saisir au lancement]
+2026-13-99x
+
+==================== Variante : le notebook lit les fichiers lui-même ====================
+
+[Dans NB_Noor, remplacer le bloc raw = (...) par]
+raw = (spark.read.option("header", True).csv("Files/landing/*.csv").withColumn("source_file", F.input_file_name()).withColumn("load_day", F.lit(day)).withColumn("code", F.regexp_extract("source_file", r"(noor_[a-z]+)", 1)).withColumn("mwh", F.col("mwh").cast("double")).withColumn("ghi", F.col("ghi_wm2").cast("double")))
+
+==================== Vérifier dans le point de terminaison SQL ====================
+
+[Requête]
+SELECT plant, capacity_mw, mwh, capacity_factor_pct, performance_ratio, status FROM plant_scores ORDER BY capacity_factor_pct DESC;
